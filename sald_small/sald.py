@@ -20,8 +20,8 @@ def load_unconditional_ddpm(model_id):
     print("num_train_timesteps:", pipe.scheduler.config.num_train_timesteps)
     return pipe
 
-problem="mnist"
-#problem="bedroom"
+#problem="mnist"
+problem="bedroom"
 #problem="celeb"
 
 if problem=="mnist":
@@ -359,7 +359,7 @@ def sald(
 
         # score of pi_t without guide
         if predictor:
-            score_pi = (1.0 + 1.0/s_end) * base_score + (gamma_k / s_end) * x
+            score_pi = (1.0 + 1.0/s_end) * base_score + x / s_end
         else:
             score_pi = base_score
             

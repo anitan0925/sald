@@ -3,7 +3,6 @@ import torch
 import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image
-import torchvision.transforms as T
 
 import safetensors.torch
 from diffusers import DDPMPipeline, DDPMScheduler
@@ -21,8 +20,8 @@ def load_unconditional_ddpm(model_id):
     print("num_train_timesteps:", pipe.scheduler.config.num_train_timesteps)
     return pipe
 
-#problem="mnist"
-problem="bedroom"
+problem="mnist"
+#problem="bedroom"
 #problem="celeb"
 
 if problem=="mnist":
@@ -35,15 +34,6 @@ else:
     print("Choose the problem: mnist, bedroom")
     exit(1)
 
-def load_reference_image(path, image_size=256):
-    tfm = T.Compose([
-        T.Resize((image_size, image_size)),
-        T.ToTensor(),              # [0,1]
-        T.Lambda(lambda x: 2.0 * x - 1.0),  # [-1,1]
-    ])
-    img = Image.open(path).convert("RGB")
-    x_ref = tfm(img).unsqueeze(0).to(device=device, dtype=next(pipe.unet.parameters()).dtype)
-    return x_ref
 
 def tensor_to_pil(x):
     """
@@ -293,201 +283,6 @@ def make_beta_mobility_schedule_from_scheduler(pipe, multiply_by_num_steps=True)
     return mobility_fn
 
 
-def make_guide_weight_schedule(
-    schedule_type="constant",
-    weight=1.0,
-    power=1.0,
-):
-    """
-    Returns lambda(u).
-    """
-    if schedule_type == "zero":
-        def weight_fn(u):
-            return torch.zeros_like(u)
-
-    elif schedule_type == "constant":
-        def weight_fn(u):
-            return weight * torch.ones_like(u)
-
-    elif schedule_type == "poly_decay":
-        if power <= 0:
-            raise ValueError("power must be > 0")
-        def weight_fn(u):
-            return weight * torch.clamp(1.0 - u, min=0.0) ** power
-
-    elif schedule_type == "poly_rise":
-        if power <= 0:
-            raise ValueError("power must be > 0")
-        def weight_fn(u):
-            return weight * torch.clamp(u, 0.0, 1.0) ** power
-
-    elif schedule_type == "cosine_rise":
-        def weight_fn(u):
-            z = torch.clamp(u, 0.0, 1.0)
-            return weight * 0.5 * (1.0 - torch.cos(math.pi * z))
-
-    else:
-        raise ValueError(f"Unknown guide weight schedule: {schedule_type}")
-
-    return weight_fn
-
-import torch.nn.functional as F
-
-def gaussian_blur_3x3(z):
-    kernel = torch.tensor(
-        [[1., 2., 1.],
-         [2., 4., 2.],
-         [1., 2., 1.]],
-        device=z.device,
-        dtype=z.dtype,
-    )
-    kernel = kernel / kernel.sum()
-    kernel = kernel.view(1, 1, 3, 3)
-    kernel = kernel.expand(z.shape[1], 1, 3, 3)
-    return F.conv2d(z, kernel, padding=1, groups=z.shape[1])
-
-def compute_blurred_l2_guide_grad(
-    z,
-    z_ref,
-    weight=1.0,
-    normalize=True,
-):
-    """
-    Approximate gradient for
-      0.5 * || blur(z) - blur(z_ref) ||^2
-    using the symmetric 3x3 blur.
-    """
-    z_ref = z_ref.to(device=z.device, dtype=z.dtype)
-    if z_ref.shape[0] == 1 and z.shape[0] > 1:
-        z_ref = z_ref.expand(z.shape[0], -1, -1, -1)
-
-    bz = gaussian_blur_3x3(z)
-    bref = gaussian_blur_3x3(z_ref)
-    diff = bz - bref
-
-    # because the blur kernel is symmetric, transpose conv is the same blur
-    grad = gaussian_blur_3x3(diff)
-
-    if normalize:
-        n = z[0].numel()
-        grad = grad / n
-
-    return weight * grad
-
-def compute_l2_guide_grad(
-    z,
-    z_ref,
-    weight=1.0,
-    normalize=True,
-):
-    """
-    f(z) = weight * 0.5 * ||z - z_ref||^2
-    if normalize=True:
-        f(z) = weight * 0.5 * mean((z-z_ref)^2)
-
-    grad_z f(z) is returned.
-
-    z:     [B,C,H,W]
-    z_ref: [1,C,H,W] or [B,C,H,W]
-    """
-    z_ref = z_ref.to(device=z.device, dtype=z.dtype)
-
-    if z_ref.shape[0] == 1 and z.shape[0] > 1:
-        z_ref = z_ref.expand(z.shape[0], -1, -1, -1)
-
-    grad = z - z_ref
-
-    if normalize:
-        n = z[0].numel()
-        grad = grad / n
-
-    return weight * grad
-
-def compute_brightness_guide_grad(
-    z,
-    target_mean=0.0,
-    weight=1.0,
-):
-    """
-    f(z) = weight * 0.5 * (mean(z) - target_mean)^2
-    """
-    mean_val = z.mean(dim=(1, 2, 3), keepdim=True)
-    n = z[0].numel()
-    grad = (mean_val - target_mean) / n
-    return weight * torch.ones_like(z) * grad
-
-def compute_color_mean_guide_grad(
-    z,
-    target_rgb,   # tensor/list of length 3 in [-1,1]
-    weight=1.0,
-):
-    """
-    f(z) = weight * 0.5 * || channel_mean(z) - target_rgb ||^2
-    """
-    if not torch.is_tensor(target_rgb):
-        target_rgb = torch.tensor(target_rgb, device=z.device, dtype=z.dtype)
-    target_rgb = target_rgb.view(1, 3, 1, 1)
-
-    mean_rgb = z.mean(dim=(2, 3), keepdim=True)   # [B,3,1,1]
-    grad = mean_rgb - target_rgb
-    n_spatial = z.shape[2] * z.shape[3]
-    grad = grad / n_spatial
-    return weight * grad.expand_as(z)
-
-def compute_guide_grad_dispatch(
-    guide_type,
-    x,
-    u_k,
-    guide_weight_fn,
-    guide_kwargs=None):
-
-    if guide_type is None:
-        return torch.zeros_like(x)
-
-    if guide_kwargs is None:
-        guide_kwargs = {}
-
-    weight = float(guide_weight_fn(u_k))
-    if weight == 0.0:
-        return torch.zeros_like(x)
-
-    if guide_type == "l2":
-        x_ref = guide_kwargs["x_ref"]
-        return compute_l2_guide_grad(
-            z=x,
-            z_ref=x_ref,
-            weight=weight,
-            normalize=guide_kwargs.get("normalize", True),
-        )
-
-    elif guide_type == "blurred_l2":
-        x_ref = guide_kwargs["x_ref"]
-        return compute_blurred_l2_guide_grad(
-            z=x,
-            z_ref=x_ref,
-            weight=weight,
-            normalize=guide_kwargs.get("normalize", True),
-        )
-
-    elif guide_type == "brightness":
-        target_mean = guide_kwargs.get("target_mean", 0.0)
-        return compute_brightness_guide_grad(
-            z=x,
-            target_mean=target_mean,
-            weight=weight,
-        )
-
-    elif guide_type == "color_mean":
-        target_rgb = guide_kwargs["target_rgb"]
-        return compute_color_mean_guide_grad(
-            z=x,
-            target_rgb=target_rgb,
-            weight=weight,
-        )
-
-    else:
-        raise ValueError(f"Unknown guide_type: {guide_type}")
-    
 @torch.no_grad()
 def sald(
     pipe,
@@ -500,9 +295,6 @@ def sald(
     eta_schedule=None,         # eta_k = eta_schedule(s_k, u_k, sigma_k)
     gamma_schedule=None,       # gamma(u)
     mobility_schedule=None,
-    guide_type=None,
-    guide_weight_fn=None,
-    guide_kwargs=None,
     u_max=0.98,
     max_steps=20000,
     return_all=False,
@@ -529,9 +321,7 @@ def sald(
     if mobility_schedule is None:
         mobility_schedule = make_mobility_schedule(schedule_type="constant", a0=1.0)
       
-    if guide_weight_fn is None:
-        guide_weight_fn = make_guide_weight_schedule(schedule_type="zero", weight=0.0)
-        
+
     x, generator = sample_initial_noise(pipe, batch_size=batch_size, seed=seed)
 
     scheduler.set_timesteps(num_inference_steps, device=device)
@@ -567,21 +357,12 @@ def sald(
         # score of p_t
         base_score = -eps / sigma_k
 
-        # guide
-        guide_weight = float(guide_weight_fn(u_k))
-        guide_grad = compute_guide_grad_dispatch(
-            guide_type=guide_type,
-            x=x,
-            u_k=u_k,
-            guide_weight_fn=guide_weight_fn,
-            guide_kwargs=guide_kwargs)
-        
         # score of pi_t without guide
         if predictor:
-            score_pi = (1.0 + 1.0/s_end) * base_score + x / s_end - guide_grad
+            score_pi = (1.0 + 1.0/s_end) * base_score + (gamma_k / s_end) * x
         else:
-            score_pi = base_score - guide_grad
-           
+            score_pi = base_score
+            
         z = torch.randn(x.shape, generator=generator, device=x.device,dtype=x.dtype)
         
         drift = eta_k * a_k * score_pi
@@ -591,14 +372,12 @@ def sald(
         if verbose and (step % 20 == 0):
             drift_norm = drift.flatten(1).norm(dim=1).mean().item()
             diff_norm = diffusion.flatten(1).norm(dim=1).mean().item()
-            guide_norm = guide_grad.flatten(1).norm(dim=1).mean().item()            
             print(
                 f"[step {step:05d}] "
                 f"s={float(s_k):.4f}, u={float(u_k):.4f}, "
                 f"t={float(t_k):.2f}, sigma={float(sigma_k):.4f}, "
                 f"eta={float(eta_k):.6f}, gamma={float(gamma_k):.6f}, "
                 f"a={a_k}, "
-                f"guide_w={guide_weight:.4f}, guide_norm={guide_norm:.4f}, "
                 f"drift_norm={drift_norm:.4f}, noise_norm={diff_norm:.4f}"
             )
 
@@ -675,23 +454,6 @@ elif problem in ["bedroom", "celeb"]:
         gamma_max=1.0,
         power=0.2)
 
-    # guide
-    guide_type=None
-    #guide_type="color_mean"
-    guide_type="brightness"
-
-    if guide_type=="color_mean":
-        guide_kwargs={"target_rgb": [-0.1, -0.1, 0.5]}        
-        guide_weight_fn = make_guide_weight_schedule(schedule_type="poly_rise", weight=1000.0, power=1.0)
-        #guide_weight_fn = make_guide_weight_schedule(schedule_type="constant", weight=500.0, power=1.0)        
-
-    elif guide_type=="brightness":
-        guide_kwargs={"target_mean": -0.1}
-        guide_weight_fn = make_guide_weight_schedule(schedule_type="poly_rise", weight=10000.0, power=1.0)        
-
-    elif guide_type==None:
-        guide_kwargs=None
-
     imgs = sald(
         pipe,
         batch_size=1,
@@ -703,9 +465,6 @@ elif problem in ["bedroom", "celeb"]:
         eta_schedule=eta_schedule,
         gamma_schedule=gamma_schedule,
         mobility_schedule=mobility_schedule,
-        guide_type=guide_type,
-        guide_weight_fn=guide_weight_fn,
-        guide_kwargs=guide_kwargs,
         u_max=1.0,
         max_steps=100000,
         verbose=True)

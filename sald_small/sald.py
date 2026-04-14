@@ -681,16 +681,21 @@ elif problem in ["bedroom", "celeb"]:
     guide_type="brightness"
 
     if guide_type=="color_mean":
-        guide_kwargs={"target_rgb": [-0.1, -0.1, 0.5]}        
+        target_rgb=[-0.1, -0.1, 0.5]        
+        guide_kwargs={"target_rgb": target_rgb} 
         guide_weight_fn = make_guide_weight_schedule(schedule_type="poly_rise", weight=1000.0, power=1.0)
         #guide_weight_fn = make_guide_weight_schedule(schedule_type="constant", weight=500.0, power=1.0)        
-
+        filename=f"./{problem}_r{r}_color_mean-r{target_rgb[0]}-g{target_rgb[1]}-b{target_rgb[2]}.png"
+        
     elif guide_type=="brightness":
-        guide_kwargs={"target_mean": -0.1}
-        guide_weight_fn = make_guide_weight_schedule(schedule_type="poly_rise", weight=10000.0, power=1.0)        
+        target_mean=-0.1
+        guide_kwargs={"target_mean": target_mean}
+        guide_weight_fn = make_guide_weight_schedule(schedule_type="poly_rise", weight=10000.0, power=1.0)
+        filename=f"./{problem}_r{r}_brightness_mean{target_mean}.png"
 
     elif guide_type==None:
         guide_kwargs=None
+        filename=f"./{problem}_r{r}.png"
 
     imgs = sald(
         pipe,
@@ -711,4 +716,4 @@ elif problem in ["bedroom", "celeb"]:
         verbose=True)
 
     
-    imgs[0].save(f"./{problem}_r{r}.png")
+    imgs[0].save(filename)

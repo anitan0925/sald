@@ -676,12 +676,13 @@ elif problem in ["bedroom", "celeb"]:
         power=0.2)
 
     # guide
-    guide_type=None
-    #guide_type="color_mean"
-    guide_type="brightness"
+    #guide_type=None
+    guide_type="color_mean"
+    #guide_type="brightness"
 
     if guide_type=="color_mean":
-        target_rgb=[-0.1, -0.1, 0.5]        
+        gv =0.4
+        target_rgb=[-0.1, gv, -0.1] 
         guide_kwargs={"target_rgb": target_rgb} 
         guide_weight_fn = make_guide_weight_schedule(schedule_type="poly_rise", weight=1000.0, power=1.0)
         #guide_weight_fn = make_guide_weight_schedule(schedule_type="constant", weight=500.0, power=1.0)        

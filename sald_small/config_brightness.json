@@ -1,0 +1,6 @@
+{
+    "problem": "bedroom",
+    "r" : 1.0,
+    "guide_type" : "brightness",
+    "target_mean" : -0.4
+}

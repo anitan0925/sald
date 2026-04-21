@@ -8,6 +8,9 @@ import torchvision.transforms as T
 import safetensors.torch
 from diffusers import DDPMPipeline, DDPMScheduler
 
+import sys
+import json
+
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -21,8 +24,15 @@ def load_unconditional_ddpm(model_id):
     print("num_train_timesteps:", pipe.scheduler.config.num_train_timesteps)
     return pipe
 
+json_file = sys.argv[1]
+
+with open(json_file, "r", encoding="utf-8") as f:
+    data = json.load(f)
+
+problem = data["problem"]
+
 #problem="mnist"
-problem="bedroom"
+#problem="bedroom"
 #problem="celeb"
 
 if problem=="mnist":
@@ -286,9 +296,9 @@ def make_beta_mobility_schedule_from_scheduler(pipe, multiply_by_num_steps=True)
 
         
         if multiply_by_num_steps:
-            return 0.5*(N - 1) * beta_rev
+            return (N - 1) * beta_rev
         else:
-            return 0.5*beta_rev
+            return beta_rev
 
     return mobility_fn
 
@@ -333,75 +343,6 @@ def make_guide_weight_schedule(
 
 import torch.nn.functional as F
 
-def gaussian_blur_3x3(z):
-    kernel = torch.tensor(
-        [[1., 2., 1.],
-         [2., 4., 2.],
-         [1., 2., 1.]],
-        device=z.device,
-        dtype=z.dtype,
-    )
-    kernel = kernel / kernel.sum()
-    kernel = kernel.view(1, 1, 3, 3)
-    kernel = kernel.expand(z.shape[1], 1, 3, 3)
-    return F.conv2d(z, kernel, padding=1, groups=z.shape[1])
-
-def compute_blurred_l2_guide_grad(
-    z,
-    z_ref,
-    weight=1.0,
-    normalize=True,
-):
-    """
-    Approximate gradient for
-      0.5 * || blur(z) - blur(z_ref) ||^2
-    using the symmetric 3x3 blur.
-    """
-    z_ref = z_ref.to(device=z.device, dtype=z.dtype)
-    if z_ref.shape[0] == 1 and z.shape[0] > 1:
-        z_ref = z_ref.expand(z.shape[0], -1, -1, -1)
-
-    bz = gaussian_blur_3x3(z)
-    bref = gaussian_blur_3x3(z_ref)
-    diff = bz - bref
-
-    # because the blur kernel is symmetric, transpose conv is the same blur
-    grad = gaussian_blur_3x3(diff)
-
-    if normalize:
-        n = z[0].numel()
-        grad = grad / n
-
-    return weight * grad
-
-def compute_l2_guide_grad(
-    z,
-    z_ref,
-    weight=1.0,
-    normalize=True,
-):
-    """
-    f(z) = weight * 0.5 * ||z - z_ref||^2
-    if normalize=True:
-        f(z) = weight * 0.5 * mean((z-z_ref)^2)
-
-    grad_z f(z) is returned.
-
-    z:     [B,C,H,W]
-    z_ref: [1,C,H,W] or [B,C,H,W]
-    """
-    z_ref = z_ref.to(device=z.device, dtype=z.dtype)
-
-    if z_ref.shape[0] == 1 and z.shape[0] > 1:
-        z_ref = z_ref.expand(z.shape[0], -1, -1, -1)
-
-    grad = z - z_ref
-
-    if normalize:
-        n = z[0].numel()
-        grad = grad / n
-
-    return weight * grad
 
 def compute_brightness_guide_grad(
     z,
@@ -414,7 +355,8 @@ def compute_brightness_guide_grad(
     mean_val = z.mean(dim=(1, 2, 3), keepdim=True)
     n = z[0].numel()
     grad = (mean_val - target_mean) / n
-    return weight * torch.ones_like(z) * grad
+    brightness = mean_val
+    return weight * torch.ones_like(z) * grad, brightness
 
 def compute_color_mean_guide_grad(
     z,
@@ -430,9 +372,11 @@ def compute_color_mean_guide_grad(
 
     mean_rgb = z.mean(dim=(2, 3), keepdim=True)   # [B,3,1,1]
     grad = mean_rgb - target_rgb
+    val = mean_rgb
     n_spatial = z.shape[2] * z.shape[3]
     grad = grad / n_spatial
-    return weight * grad.expand_as(z)
+
+    return weight * grad.expand_as(z), mean_rgb
 
 def compute_guide_grad_dispatch(
     guide_type,
@@ -442,34 +386,20 @@ def compute_guide_grad_dispatch(
     guide_kwargs=None):
 
     if guide_type is None:
-        return torch.zeros_like(x)
+        return torch.zeros_like(x), 0
 
     if guide_kwargs is None:
         guide_kwargs = {}
 
-    weight = float(guide_weight_fn(u_k))
+    if guide_weight_fn is None:
+        weight = 0.0
+    else:
+        weight = float(guide_weight_fn(u_k))
+        
     if weight == 0.0:
-        return torch.zeros_like(x)
+        return torch.zeros_like(x), 0
 
-    if guide_type == "l2":
-        x_ref = guide_kwargs["x_ref"]
-        return compute_l2_guide_grad(
-            z=x,
-            z_ref=x_ref,
-            weight=weight,
-            normalize=guide_kwargs.get("normalize", True),
-        )
-
-    elif guide_type == "blurred_l2":
-        x_ref = guide_kwargs["x_ref"]
-        return compute_blurred_l2_guide_grad(
-            z=x,
-            z_ref=x_ref,
-            weight=weight,
-            normalize=guide_kwargs.get("normalize", True),
-        )
-
-    elif guide_type == "brightness":
+    if guide_type == "brightness":
         target_mean = guide_kwargs.get("target_mean", 0.0)
         return compute_brightness_guide_grad(
             z=x,
@@ -569,7 +499,7 @@ def sald(
 
         # guide
         guide_weight = float(guide_weight_fn(u_k))
-        guide_grad = compute_guide_grad_dispatch(
+        guide_grad, guide_val = compute_guide_grad_dispatch(
             guide_type=guide_type,
             x=x,
             u_k=u_k,
@@ -578,14 +508,14 @@ def sald(
         
         # score of pi_t without guide
         if predictor:
-            score_pi = (1.0 + 1.0/s_end) * base_score + x / s_end - guide_grad
+            score_pi = 0.5 * x / s_end + 0.5 * (1.0 + 1.0/s_end ) * base_score - 0.5 * guide_grad
         else:
             score_pi = base_score - guide_grad
            
         z = torch.randn(x.shape, generator=generator, device=x.device,dtype=x.dtype)
-        
+
         drift = eta_k * a_k * score_pi
-        diffusion = torch.sqrt(2.0 * eta_k * a_k) * z
+        diffusion = torch.sqrt(eta_k * a_k) * z
         x = x + drift + diffusion
 
         if verbose and (step % 20 == 0):
@@ -614,12 +544,17 @@ def sald(
             break
 
     if verbose:
-        print(f"Finished at step={step}, final s={float(s_k):.4f}, final u={float(u_k):.4f}")
+        print(f"Finished at step={step}, final s={float(s_k):.4f}, final u={float(u_k):.4f}, guide_val ={guide_val}")
 
     images = tensor_to_pil(x)
     if return_all:
         return images, traj
     return images
+
+
+
+
+
 
 if problem=="mnist":
     r = 10.0
@@ -656,7 +591,8 @@ if problem=="mnist":
         img.save(f"./mnist_r{r}_{i}.png")
         
 elif problem in ["bedroom", "celeb"]:
-    r = 10.0
+    r = float(data["r"])
+    
     slowdown_fn = slowdown_linear_factory(r)
 
     
@@ -665,8 +601,8 @@ elif problem in ["bedroom", "celeb"]:
         #schedule_type="time_decay",
         eta0 = 0.005 )
 
-    mobility_schedule = make_mobility_schedule(schedule_type="poly_decay", a0=10.0, a_min=0.1, power=1.0)
-    #mobility_schedule = make_beta_mobility_schedule_from_scheduler(pipe)
+    #mobility_schedule = make_mobility_schedule(schedule_type="poly_decay", a0=10.0, a_min=0.1, power=1.0)
+    mobility_schedule = make_beta_mobility_schedule_from_scheduler(pipe)
     #mobility_schedule = make_mobility_schedule(schedule_type="constant", a0=1.0)
 
     gamma_schedule = make_gamma_schedule(
@@ -676,33 +612,39 @@ elif problem in ["bedroom", "celeb"]:
         power=0.2)
 
     # guide
-    #guide_type=None
-    guide_type="color_mean"
+    if data["guide_type"] == "None":
+        guide_type=None
+    else:
+        guide_type = data["guide_type"]
+    #guide_type="color_mean"
     #guide_type="brightness"
+    
 
     if guide_type=="color_mean":
-        gv =0.4
-        target_rgb=[-0.1, gv, -0.1] 
+        target_rgb=data["target_rgb"]
+
         guide_kwargs={"target_rgb": target_rgb} 
         guide_weight_fn = make_guide_weight_schedule(schedule_type="poly_rise", weight=1000.0, power=1.0)
-        #guide_weight_fn = make_guide_weight_schedule(schedule_type="constant", weight=500.0, power=1.0)        
+
         filename=f"./{problem}_r{r}_color_mean-r{target_rgb[0]}-g{target_rgb[1]}-b{target_rgb[2]}.png"
         
     elif guide_type=="brightness":
-        target_mean=-0.1
+        target_mean=data["target_mean"]
         guide_kwargs={"target_mean": target_mean}
-        guide_weight_fn = make_guide_weight_schedule(schedule_type="poly_rise", weight=10000.0, power=1.0)
+        guide_weight_fn = make_guide_weight_schedule(schedule_type="poly_rise", weight=1000.0, power=1.0)
+
         filename=f"./{problem}_r{r}_brightness_mean{target_mean}.png"
 
     elif guide_type==None:
         guide_kwargs=None
+        guide_weight_fn=None
         filename=f"./{problem}_r{r}.png"
 
     imgs = sald(
         pipe,
         batch_size=1,
         num_inference_steps=1000,
-        seed=123,
+        seed=1234,
         slowdown_fn=slowdown_fn,
         s_end=r,
         predictor=True,

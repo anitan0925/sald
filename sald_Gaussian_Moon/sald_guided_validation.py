@@ -284,6 +284,7 @@ def _capture_guided_row(
     hist_prob = empirical_hist_prob_2d(x, state.x_edges, state.y_edges)
     q_path = guided_target_mass_grid(t, model_cfg, state)
     guidance_values = interpolate_guidance_potential(x, state)
+    mean_penalty = float(guidance_values.mean().item())
     row = {
         'r': float(r),
         'completed_steps': float(completed_steps),
@@ -296,7 +297,8 @@ def _capture_guided_row(
         'mean_x2': float(x[:, 1].mean().item()),
         'var_x1': float(x[:, 0].var(unbiased=False).item()),
         'var_x2': float(x[:, 1].var(unbiased=False).item()),
-        'mean_guidance': float(guidance_values.mean().item()),
+        'mean_guidance': -mean_penalty,
+        'mean_penalty': mean_penalty,
     }
     return row, hist_prob.detach().cpu().numpy()
 
@@ -534,9 +536,9 @@ def plot_guided_mean_objective(
     for r in selected_r:
         sub = trajectory_df[trajectory_df['r'] == float(r)]
         ax.plot(sub['u'], sub['mean_guidance'], color=palette[int(r)], lw=2.0, alpha=0.95, label=fr'$r={int(r)}$')
-    ax.set_title(r'Mean Guidance Objective $\mathbb{E}[f(X_s)]$')
+    ax.set_title(r'Mean Guidance Objective $\mathbb{E}[-f(X_s)]$')
     ax.set_xlabel(r'normalized progress $u = s / (rT)$')
-    ax.set_ylabel(r'mean guidance energy')
+    ax.set_ylabel(r'mean guidance objective')
     ax.legend(ncol=2, fontsize=9)
 
 

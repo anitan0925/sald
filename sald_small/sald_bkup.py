@@ -151,30 +151,6 @@ def sigma_from_t_float(alphas_cumprod: torch.Tensor, t_float: torch.Tensor, eps:
     return torch.sqrt(torch.clamp(1.0 - alpha_bar, min=eps))
 
 
-def predict_x0_from_eps(x_t, eps, alpha_bar, clip=True, eps_denom: float = 1e-8):
-    """
-    One-step denoised estimate for VP/DDPM models:
-        x_t = sqrt(alpha_bar) x_0 + sqrt(1-alpha_bar) eps.
-
-    This does not run an additional reverse simulation.  It only uses the
-    current sample x_t and the UNet noise prediction eps_theta(x_t,t).
-    """
-    sqrt_alpha = torch.sqrt(torch.clamp(alpha_bar, min=eps_denom))
-    sqrt_one_minus_alpha = torch.sqrt(torch.clamp(1.0 - alpha_bar, min=eps_denom))
-
-    while sqrt_alpha.ndim < x_t.ndim:
-        sqrt_alpha = sqrt_alpha.view(*sqrt_alpha.shape, *([1] * (x_t.ndim - sqrt_alpha.ndim)))
-    while sqrt_one_minus_alpha.ndim < x_t.ndim:
-        sqrt_one_minus_alpha = sqrt_one_minus_alpha.view(
-            *sqrt_one_minus_alpha.shape, *([1] * (x_t.ndim - sqrt_one_minus_alpha.ndim))
-        )
-
-    x0_hat = (x_t - sqrt_one_minus_alpha * eps) / sqrt_alpha
-    if clip:
-        x0_hat = x0_hat.clamp(-1.0, 1.0)
-    return x0_hat
-
-
 def make_eta_schedule(
     schedule_type="constant",
     eta0=0.005,
@@ -459,8 +435,6 @@ def sald(
     guide_type=None,
     guide_weight_fn=None,
     guide_kwargs=None,
-    guide_on_x0=True,
-    clip_x0_hat=True,
     u_max=0.98,
     max_steps=20000,
     return_all=False,
@@ -508,8 +482,7 @@ def sald(
         u_k = torch.clamp(slowdown_fn(s_k), 0.0, u_max)
 
         t_k = interpolate_model_timestep(base_timesteps.float(), u_k).to(device=device, dtype=x.dtype)
-        alpha_bar_k = interpolate_alpha_bar(alphas_cumprod, t_k).to(device=device, dtype=x.dtype)
-        sigma_k = torch.sqrt(torch.clamp(1.0 - alpha_bar_k, min=1e-5)).to(device=device, dtype=x.dtype)
+        sigma_k = sigma_from_t_float(alphas_cumprod, t_k).to(device=device, dtype=x.dtype)
         eta_k = eta_schedule(s_k, u_k, sigma_k).to(device=device, dtype=x.dtype)
    
         if float(eta_k) <= 0:
@@ -527,35 +500,13 @@ def sald(
         base_score = -eps / sigma_k
 
         # guide
-        # By default, evaluate the guide on the one-step denoised estimate x0_hat,
-        # not on the noisy intermediate state x_t.  Since eps_theta is computed
-        # under @torch.no_grad(), this is the lightweight detached-denoiser
-        # approximation:
-        #     d F(x0_hat(x_t)) / d x_t ~= (1 / sqrt(alpha_bar_t)) dF/dx0_hat.
         guide_weight = float(guide_weight_fn(u_k))
-        if guide_on_x0 and guide_type is not None and guide_weight != 0.0:
-            x0_hat = predict_x0_from_eps(
-                x_t=x,
-                eps=eps,
-                alpha_bar=alpha_bar_k,
-                clip=clip_x0_hat,
-            )
-            guide_grad_x0, guide_val = compute_guide_grad_dispatch(
-                guide_type=guide_type,
-                x=x0_hat,
-                u_k=u_k,
-                guide_weight_fn=guide_weight_fn,
-                guide_kwargs=guide_kwargs,
-            )
-            guide_grad = guide_grad_x0 / torch.sqrt(torch.clamp(alpha_bar_k, min=1e-8))
-        else:
-            guide_grad, guide_val = compute_guide_grad_dispatch(
-                guide_type=guide_type,
-                x=x,
-                u_k=u_k,
-                guide_weight_fn=guide_weight_fn,
-                guide_kwargs=guide_kwargs,
-            )
+        guide_grad, guide_val = compute_guide_grad_dispatch(
+            guide_type=guide_type,
+            x=x,
+            u_k=u_k,
+            guide_weight_fn=guide_weight_fn,
+            guide_kwargs=guide_kwargs)
 
        
         # score of pi_t without guide

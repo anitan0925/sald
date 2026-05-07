@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.venv/
+logs/
+outputs/
+outputs_smoke/
+Figs_smoke/
+*_executed*.ipynb
+*.executed.ipynb

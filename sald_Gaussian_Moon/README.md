@@ -38,6 +38,10 @@ python3 -m pip install --upgrade pip
 python3 -m pip install -r requirements.txt
 ```
 
+On Debian/Ubuntu systems, `python3 -m venv` requires the system package
+`python3-venv`.  A Conda environment with the packages in `requirements.txt`
+is also fine.
+
 Install a CUDA-enabled PyTorch build if GPU execution is desired.  CPU execution
 works but is slower.
 

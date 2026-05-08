@@ -1,6 +1,0 @@
-{
-    "problem": "bedroom",
-    "r" : 1.0,
-    "guide_type" : "color_mean",
-    "target_rgb" : [-0.1, -0.1, -0.1]
-}

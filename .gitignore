@@ -205,3 +205,17 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# SALD local experiment outputs and unpublished workspaces
+outputs/
+outputs_smoke/
+Figs_smoke/
+results/
+final_results*/
+wandb/
+logs/
+*.npz
+
+# Local workspaces kept for later releases but not part of the first public code drop
+sald_small/
+sald_vp_SDXL/

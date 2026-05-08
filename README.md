@@ -21,7 +21,7 @@ The synthetic experiments are fully reproducible on CPU or GPU and include the m
 For the text-to-image experiment, `sald_FM_SD35` implements the flow-matching version of VA-SALD for SD3.5-M and supports Aesthetic, PickScore, and CLIP-based guidance through zeroth-order reward gradients.
 
 <p align="center">
-  <img src="sald_FM_SD35/Figs/lion_gc8.png" width="99%" alt="Guided generation on lion with guidance of black-box reward functions based on neural Aesthetic scorer. Across increasing budgets, VA-SALD produces stable and progressively refined
+  <img src="sald_FM_SD35/Figs/lion_gc8.jpg" width="99%" alt="Guided generation on lion with guidance of black-box reward functions based on neural Aesthetic scorer. Across increasing budgets, VA-SALD produces stable and progressively refined
 samples, whereas FM-ZG and FM-Evolv exhibit severe artifacts and unstable
 semantic preservation.">
 </p>

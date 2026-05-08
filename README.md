@@ -127,4 +127,4 @@ CITATION.bib          BibTeX citation.
 
 ## Acknowledgments
 
-The synthetic experiments include a DOIT-style baseline adapted from the public implementation of training-free Doob adaptation.  The SD3.5 flow-matching experiment builds on Hugging Face Diffusers and pretrained Stability AI models.
+The synthetic experiments include a DOIT-style baseline adapted from the <https://github.com/liamyzq/Doob_training_free_adaptation>.  The SD3.5 flow-matching experiment builds on Hugging Face Diffusers and pretrained Stability AI models.

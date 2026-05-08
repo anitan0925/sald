@@ -90,17 +90,17 @@ class Trainer:
         K = int(r/eta0)
         GC = self.config.diffusion.guidanceC
         reward_name = "CLIPscore"
-        reward_name ="aesthetic"
-        reward_name ="pickscore"
-        txtfile = './final_results11/VA_SALD_' +  str(reward_name) + '/VA_SALD_Guidance_zerothorder_' + self.prompt   + '_' + str(r)  + '_' + str(K) + '_' + str(eta0)  + '_' + str(GC) + '.txt'
-        txtfile = './final_results11/evolvable_' +  str(reward_name) + '/Evolvable_' + self.prompt  + '_' + str(Inference_N_step) + '_' + str(self.config.diffusion.guidanceC)  + '_'  + 'adjoint.txt'
-        txtfile = './final_results11/StableDiff_FlowGRPO_DefaultSampler_' +  str(reward_name) + '/StableDiff_Zeroth_' + self.prompt  + '_' + str(Inference_N_step) + '_' + str(self.config.diffusion.guidanceC)  + '_'  + 'adjoint.txt'
+        # reward_name ="aesthetic"
+        # reward_name ="pickscore"
+        txtfile = './results/VA_SALD_' +  str(reward_name) + '/VA_SALD_Guidance_zerothorder_' + self.prompt   + '_' + str(r)  + '_' + str(K) + '_' + str(eta0)  + '_' + str(GC) + '.txt'
+        # txtfile = './results/evolvable_' +  str(reward_name) + '/Evolvable_' + self.prompt  + '_' + str(Inference_N_step) + '_' + str(self.config.diffusion.guidanceC)  + '_'  + 'adjoint.txt'
+        # txtfile = './results/StableDiff_FlowGRPO_DefaultSampler_' +  str(reward_name) + '/StableDiff_Zeroth_' + self.prompt  + '_' + str(Inference_N_step) + '_' + str(self.config.diffusion.guidanceC)  + '_'  + 'adjoint.txt'
         data = np.loadtxt(txtfile)
 
 
-        Nscale = 30
-        Nscale  = 1
-        Nscale =  26 
+        Nscale = 30    # the scale for "CLIPscore"
+        # Nscale  = 1    # the scale for "aesthetic"
+        # Nscale =  26   # the scale for "pickscore"
         
 
         meanScore = np.mean(data[:,1]) * Nscale
@@ -108,10 +108,10 @@ class Trainer:
         
         images = []
         for k in range(10):
-            ImageRecords = './final_results11/VA_SALD_' +  str(reward_name) +   '/VA_SALD_Guidance_zerothorder_' + self.prompt   + '_' + str(r)  + '_' + str(K) + '_' + str(eta0)  + '_' + str(GC) + '_' + str(data[k,1]) +  '_' + str(k) +'.png'
-            ImageRecords = './final_results11/evolvable_' +  str(reward_name) + '/Evolvable_' + self.prompt   +  '_' + str(Inference_N_step)  + '_' + str(self.config.diffusion.guidanceC) + '_' + str(data[k,1]) +  '_' + str(k) + '.png'
-            ImageRecords = './final_results11/StableDiff_FlowGRPO_DefaultSampler_' +  str(reward_name) + '/StableDiff_Zeroth_' + self.prompt   +  '_' + str(Inference_N_step)  + '_' + str(self.config.diffusion.guidanceC) + '_' + str(data[k,1]) +  '_' + str(k) + '.png'
-            # pdb.set_trace()
+            ImageRecords = './results/VA_SALD_' +  str(reward_name) +   '/VA_SALD_Guidance_zerothorder_' + self.prompt   + '_' + str(r)  + '_' + str(K) + '_' + str(eta0)  + '_' + str(GC) + '_' + str(data[k,1]) +  '_' + str(k) +'.png'
+            # ImageRecords = './results/evolvable_' +  str(reward_name) + '/Evolvable_' + self.prompt   +  '_' + str(Inference_N_step)  + '_' + str(self.config.diffusion.guidanceC) + '_' + str(data[k,1]) +  '_' + str(k) + '.png'
+            # ImageRecords = './results/StableDiff_FlowGRPO_DefaultSampler_' +  str(reward_name) + '/StableDiff_Zeroth_' + self.prompt   +  '_' + str(Inference_N_step)  + '_' + str(self.config.diffusion.guidanceC) + '_' + str(data[k,1]) +  '_' + str(k) + '.png'
+            
             img = Image.open(ImageRecords)
             images.append(img)
         

@@ -116,12 +116,11 @@ CITATION.bib          BibTeX citation.
 ## Citation
 
 ```bibtex
-@misc{nitanda2026SALD,
-  author = {{Nitanda}, Atsushi and {Bu}, Dake and {Lyu}, Yueming and {Veeravalli}, Tanya},
-  title = {{Slowly Annealed Langevin Dynamics: Theory and Applications to Training-Free Guided Generation}},
-  year = {2026},
-  month = {April},
-  note = {Article page: \url{https://sites.google.com/site/atsushinitanda/va-sald}}
+@article{nitanda2026SALD,
+  title = {Slowly Annealed Langevin Dynamics: Theory and Applications to Training-Free Guided Generation},
+  author={Nitanda, Atsushi and Bu Dake and Lyu, Yueming and Veeravalli, Tanya},
+  journal={arXiv:2605.07950},
+  year={2026}
 }
 ```
 

@@ -3,6 +3,7 @@
 Official code for **Slowly Annealed Langevin Dynamics: Theory and Applications to Training-Free Guided Generation**.
 
 Project page: <https://sites.google.com/site/atsushinitanda/va-sald>
+
 Paper: <https://arxiv.org/abs/2605.07950>
 
 VA-SALD is a training-free guided generation framework for pretrained generative models whose marginal path is induced by an Itô diffusion.  The implementation principle is to adapt the VA-SALD drift to the backbone's own forward process, rather than treating every sampler as the same black box.  This repository currently exposes two reproducible examples:
